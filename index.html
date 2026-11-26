@@ -6,7 +6,6 @@
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>BMO Live Beacon, Emoji Board &amp; Messenger</title>
 
-  <!-- Leaflet High-Definition Interactive Map Library -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -82,7 +81,6 @@
       margin-bottom: 8px;
     }
 
-    /* 1. Latest Emoji Hero Card */
     .hero-box {
       text-align: center;
       padding: 6px 0;
@@ -102,7 +100,6 @@
       margin-top: 3px;
     }
 
-    /* 2. Direct Text Message Box (TalkBack 58554) */
     .msg-desc {
       font-size: 12px;
       color: #9ca3af;
@@ -143,7 +140,6 @@
       color: #9ca3af;
     }
 
-    /* 3. Recent Emoji Log */
     .log-list {
       display: flex;
       flex-direction: column;
@@ -181,18 +177,9 @@
     }
 
     @media (max-width: 840px) {
-      .dashboard {
-        grid-template-columns: 1fr;
-      }
-      #map {
-        height: 52vh;
-        min-height: 320px;
-      }
-      .sidebar {
-        border-left: none;
-        border-top: 1px solid #2b303b;
-        max-height: none;
-      }
+      .dashboard { grid-template-columns: 1fr; }
+      #map { height: 52vh; min-height: 320px; }
+      .sidebar { border-left: none; border-top: 1px solid #2b303b; max-height: none; }
     }
   </style>
 </head>
@@ -203,12 +190,9 @@
   </header>
 
   <div class="dashboard">
-    <!-- Left: Interactive HD Map -->
     <div id="map"></div>
 
-    <!-- Right: Emoji Board + Send Message Box + Recent Timeline -->
     <aside class="sidebar">
-      <!-- Latest Emoji Card -->
       <div class="card hero-box">
         <div class="card-label">Latest Emoji Status</div>
         <div id="hero-emoji" class="hero-emoji">⏳</div>
@@ -216,7 +200,6 @@
         <div id="hero-time" class="hero-time"></div>
       </div>
 
-      <!-- Direct Message Box -->
       <div class="card">
         <div class="card-label">Send Message to Device</div>
         <p class="msg-desc">Send a text message directly to the device screen</p>
@@ -227,7 +210,6 @@
         <div id="msgStatus">Messages appear on the device within 30 seconds</div>
       </div>
 
-      <!-- Chronological Recent Emoji Log -->
       <div class="card">
         <div class="card-label">Recent Emoji Log</div>
         <div id="emoji-log" class="log-list">
@@ -276,7 +258,6 @@
 
     const map = L.map("map", { zoomControl: true }).setView([40.1672, -105.1019], 11);
 
-    // Esri World Street Map works both from local file:// and hosted HTTPS with zero API keys
     const esriStreets = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
       attribution: "&copy; Esri",
       maxZoom: 19
@@ -299,7 +280,6 @@
       "Satellite": satelliteLayer
     }).addTo(map);
 
-    // Force Leaflet to recalculate container dimensions after grid render
     setTimeout(() => map.invalidateSize(), 250);
 
     const markerGroup = L.layerGroup().addTo(map);
@@ -329,10 +309,7 @@
       statusEl.style.color = "#93c5fd";
       statusEl.textContent = "Sending message...";
 
-      const host = ["api", "thingspeak", "com"].join(".");
-      const path = ["", "talkbacks", MSG_TALKBACK_ID, "commands"].join("/");
-      const targetUrl = "https://" + host + path;
-
+      const targetUrl = "https://api.thingspeak.com/talkbacks/" + MSG_TALKBACK_ID + "/commands";
       const payload = "api_key=" + encodeURIComponent(MSG_TALKBACK_KEY) +
                       "&command_string=" + encodeURIComponent("MSG:" + text);
 
@@ -341,21 +318,20 @@
         mode: "no-cors",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: payload
-      }).then(function() {
+      }).then(() => {
         inputEl.value = "";
         statusEl.style.color = "#4ade80";
         statusEl.textContent = 'Sent! "' + text + '" will display within 30s.';
-      }).catch(function(err) {
+      }).catch(err => {
         statusEl.style.color = "#f87171";
         statusEl.textContent = "Send failed: " + err;
       });
     }
 
-    // ==================== 3. JSONP + FETCH DUAL FEED LOADER ====================
+    // ==================== 3. RENDER FEED DATA ====================
     function renderFeedData(data) {
       const feeds = (data && data.feeds) ? data.feeds : [];
 
-      // A. Filter out BEACON rows so only Emojis populate the Emoji Board
       const emojis = feeds
         .filter(f => (f.field1 || f.field2) && (f.field1 || "").trim().toUpperCase() !== "BEACON")
         .reverse();
@@ -387,7 +363,6 @@
         logEl.innerHTML = '<div style="font-size:12px;color:#9ca3af;">No emoji posts found yet.</div>';
       }
 
-      // B. Filter BEACON rows with valid GPS coordinates and plot on HD map
       const beacons = feeds.filter(f =>
         f.field1 &&
         f.field1.trim().toUpperCase() === "BEACON" &&
@@ -449,25 +424,22 @@
         "Live • Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     }
 
-    function updateFeed() {
-      // JSONP script injection works reliably even when opened as a local file:// HTML page
-      const cbName = "tsCallback_" + Date.now();
-      const script = document.createElement("script");
-
-      window[cbName] = function(data) {
+    // ==================== 4. FETCH THINGSPEAK FEED ====================
+    async function updateFeed() {
+      const statusEl = document.getElementById("sync-status");
+      try {
+        const url = `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json?results=${FETCH_COUNT}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+          statusEl.textContent = "ThingSpeak HTTP " + res.status + " — retrying...";
+          return;
+        }
+        const data = await res.json();
         renderFeedData(data);
-        delete window[cbName];
-        script.remove();
-      };
-
-      script.onerror = function() {
-        delete window[cbName];
-        script.remove();
-        document.getElementById("sync-status").textContent = "Check internet connection — retrying...";
-      };
-
-      script.src = `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json?results=${FETCH_COUNT}&callback=${cbName}`;
-      document.body.appendChild(script);
+      } catch (err) {
+        console.error("ThingSpeak fetch error:", err);
+        statusEl.textContent = "Network error — retrying...";
+      }
     }
 
     updateFeed();
